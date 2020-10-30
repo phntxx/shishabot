@@ -2,10 +2,14 @@ FROM node:alpine
 
 WORKDIR /app
 
-COPY package.json ./
+COPY yarn.lock .
+COPY package.json .
 
-RUN npm install
+RUN [ "yarn", "install" ]
 
-COPY . .
+COPY index.js /app/index.js
+COPY members.json /app/members.json
 
-CMD [ "node", "index.js" ]
+CMD [ "yarn", "start" ]
+
+FROM node:current-alpine
