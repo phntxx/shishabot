@@ -16,14 +16,15 @@ const authToken = process.env.BOT_AUTHTOKEN;
 /**
  * Environment variables that manage the messages the bot sends
  * @param defaultMessage {string} The default message that is sent randomly.
- * @param defaultYesMessage {string} The default message when someone sends "yes" to the bot
- * @param defaultNoMessage {string} The default message when someone sends "stop" to the bot
- * @param defaultErrorMessage {string} The default error message.
+ * @param yesMessage {string} The default message when someone sends "yes" to the bot
+ * @param noMessage {string} The default message when someone sends "stop" to the bot
+
  */
 const defaultMessage = process.env.BOT_DEFAULTMESSAGE;
-const defaultYesMessage = process.env.BOT_DEFAULTYESMESSAGE;
-const defaultNoMessage = process.env.BOT_DEFAULTNOMESSAGE;
-const defaultErrorMessage = process.env.BOT_ERRORMESSAGE;
+const yesMessage = process.env.BOT_YESMESSAGE;
+const noMessage = process.env.BOT_NOMESSAGE;
+const activateMessage = process.env.BOT_ACTIVATEMESSAGE;
+const deactivateMessage = process.env.BOT_DEACTIVATEMESSAGE;
 
 /**
  * Environment variables that manage timing-based options.
@@ -285,63 +286,68 @@ const fire = (authorId) => {
 client.on("message", (message) => {
   if (message.guild !== null) refreshDatabase(message.guild.id);
 
-  if (message.content === "!help" || message.content === "help") {
-    message.channel.send(
-      "Hi, I'm ShishaBot. I randomly ask people if they want to smoke Hookah (ger. Shisha) with me. \n" +
-        "I can do a couple of things, such as:\n" +
-        " - `help`: Show this menu\n" +
-        " - `amadmin`: Tell you if you are a server administrator\n" +
-        " - `stop`: Avoid sending you messages\n" +
-        " - `fwiend?`: Get me to send you messages"
-    );
-
-    if (authenticate(message)) {
+  switch (message.content.toLowerCase()) {
+    case "help":
       message.channel.send(
-        "Additional commands for administrators (such as you):\n" +
-          " - `fire`: Show this menu\n" +
-          " - `activate`: Activate\n" +
-          " - `deactivate`: Deactivate\n"
+        "Hi, I'm ShishaBot. I randomly ask people if they want to smoke Hookah (ger. Shisha) with me. \n" +
+          "I can do a couple of things, such as:\n" +
+          " - `help`: Show this menu\n" +
+          " - `amadmin`: Tell you if you are a server administrator\n" +
+          " - `stop`: Avoid sending you messages\n" +
+          " - `fwiend?`: Get me to send you messages"
       );
-    }
-  }
 
-  if (message.content === "amadmin") {
-    message.channel.send(authenticate(message).toString());
-  }
-
-  if (message.content === "activate") {
-    if (authenticate(message)) {
-      setActive(true, message.author.id);
-    } else {
-      message.channel.send("Error: Insufficient permissions.");
-    }
-  }
-
-  if (message.content === "deactivate") {
-    if (authenticate(message)) {
-      setActive(false, message.author.id);
-    } else {
-      message.channel.send("Error: Insufficient permissions.");
-    }
-  }
-
-  if (message.content === "fire") {
-    if (authenticate(message)) {
-      message.channel.send("Firing.");
-      fire(message.author.id);
-    } else {
-      message.channel.send("Error: Insufficient permissions.");
-    }
-  }
-
-  if (message.content == "stop") {
-    managePermit(false, message.author.id);
-    message.channel.send(defaultNoMessage.replace(/['"]+/g, ""));
-  }
-
-  if (message.content == "fwiend?") {
-    managePermit(true, message.author.id);
-    message.channel.send(defaultYesMessage.replace(/['"]+/g, ""));
+      if (authenticate(message)) {
+        message.channel.send(
+          "Additional commands for administrators (such as you):\n" +
+            " - `fire`: Show this menu\n" +
+            " - `activate`: Activate\n" +
+            " - `deactivate`: Deactivate\n"
+        );
+      }
+      break;
+    case "amadmin":
+      message.channel.send(authenticate(message).toString());
+      break;
+    case "activate":
+      if (authenticate(message)) {
+        setActive(true, message.author.id);
+      } else {
+        message.channel.send("Error: Insufficient permissions.");
+      }
+      break;
+    case "deactivate":
+      if (authenticate(message)) {
+        setActive(false, message.author.id);
+      } else {
+        message.channel.send("Error: Insufficient permissions.");
+      }
+      break;
+    case "fire":
+      if (authenticate(message)) {
+        message.channel.send("Firing.");
+        fire(message.author.id);
+      } else {
+        message.channel.send("Error: Insufficient permissions.");
+      }
+      break;
+    case "yes":
+    case "ja":
+      message.channel.send(yesMessage.replace(/['"]+/g, ""));
+      break;
+    case "no":
+    case "nein":
+      message.channel.send(noMessage.replace(/['"]+/g, ""));
+      break;
+    case "stop":
+      managePermit(false, message.author.id);
+      message.channel.send(deactivateMessage.replace(/['"]+/g, ""));
+      break;
+    case "come back":
+    case "fwiend?":
+      managePermit(true, message.author.id);
+      message.channel.send(activateMessage.replace(/['"]+/g, ""));
+      break;
   }
 });
 
