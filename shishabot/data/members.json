@@ -1,0 +1,29 @@
+{
+  "servers": [
+    {
+      "id": "771467514286047233",
+      "name": "phntxx's server",
+      "active": true,
+      "members": [
+        {
+          "id": "367715368929591327",
+          "username": "phntxx#0398",
+          "admin": true,
+          "permit": false
+        },
+        {
+          "id": "367715368929591327",
+          "username": "phntxx#0398",
+          "admin": true,
+          "permit": true
+        },
+        {
+          "id": "367715368929591327",
+          "username": "phntxx#0398",
+          "admin": true,
+          "permit": true
+        }
+      ]
+    }
+  ]
+}

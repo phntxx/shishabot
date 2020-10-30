@@ -3,7 +3,7 @@ const low = require("lowdb");
 const fs = require("lowdb/adapters/FileSync");
 
 // Initialize the database
-const adapter = new fs("members.json");
+const adapter = new fs("./data/members.json");
 const db = low(adapter);
 db.defaults({ servers: [] }).write();
 
@@ -61,9 +61,9 @@ const getAllUsers = () => {
  * Initializes the database by writing all users that the bot can see across all servers to the DB
  */
 const initializeDatabase = () => {
+  console.log("INITIALIZE");
   let serverDatabase = db.get("servers");
   let list = getAllUsers();
-  console.log(list);
 
   list.forEach((server) => {
     let foundServer = serverDatabase.find({ id: server.id }).value();
@@ -88,6 +88,7 @@ const initializeDatabase = () => {
         .push({
           id: server.id,
           name: server.name,
+          active: true,
           members: memberList,
         })
         .write();
@@ -108,6 +109,7 @@ const initializeDatabase = () => {
  * @param {string} id the ID of the server whose memberlist shall be updated
  */
 const refreshDatabase = (id) => {
+  console.log("REFRESHING");
   let serverDatabase = db.get("servers").find({ id: id });
   let serverMembers = client.guilds.cache.get(id).members.cache;
   let foundServer = serverDatabase.value();
@@ -163,23 +165,35 @@ const getMember = (memberId) => {
   return member;
 };
 
+const getServer = (authorId) => {
+  let member = getMember(authorId);
+  let server = db
+    .get("servers")
+    .find({ members: [member] })
+    .value();
+
+  return server;
+};
+
 /**
  * Edits the database to allow or disallow the bot to send random messages to specific users
  * @param {number} mode the editMode (0 = remove, 1 = add)
- * @param {string} serverId the Id of the server the member can be found on
  * @param {string} memberId the Id of the member whose mode shall be changed
  */
-const managePermit = (mode, serverId, memberId) => {
-  let member = db.get("members").find({ id: id });
-  let memberData = member.value();
+const managePermit = (mode, memberId) => {
+  let serverData = getServer(memberId);
 
-  // mode 1 -> add, mode 0 -> remove
-  if (memberData !== mode.add) {
-    memberData.permit = mode === 1;
-    member.assign(memberData).write();
-    return "success";
-  } else {
-    return "error";
+  if (serverData !== undefined) {
+    serverData.members.forEach((member, i) => {
+      if (member.id == memberId) {
+        member.permit = mode;
+
+        db.get("server")
+          .find({ id: serverData.id })
+          .assign({ members: serverData.members })
+          .write();
+      }
+    });
   }
 };
 
@@ -188,6 +202,7 @@ const managePermit = (mode, serverId, memberId) => {
  * @param {string} id the ID of the server affected
  */
 const sendMessage = (id) => {
+  console.log("SENDMESSAGE");
   let server = db.get("servers").find({ id: id }).value();
 
   if (!server.active) {
@@ -199,11 +214,18 @@ const sendMessage = (id) => {
     var randomMember;
     while (invalid) {
       randomMember = members[Math.floor(Math.random() * members.length)];
-      if (randomMember.permit) invalid = false;
+
+      if (randomMember !== undefined) {
+        if (randomMember.permit) invalid = false;
+      }
     }
 
+    console.log(randomMember.username);
+
     if (client.users.cache.get(randomMember.id) !== undefined) {
-      client.users.cache.get(randomMember.id).send(defaultMessage);
+      client.users.cache
+        .get(randomMember.id)
+        .send(defaultMessage.replace(/['"]+/g, ""));
     } else {
       console.log("Skipped because of invalid user error.");
     }
@@ -228,18 +250,15 @@ const sendAutomatic = () => {
  */
 const authenticate = (message) => {
   let member = getMember(message.author.id);
-  if (member.admin) isAdmin = true;
+
+  var isAdmin = false;
+  if (member !== undefined) {
+    if (member.admin) {
+      isAdmin = true;
+    }
+  }
+
   return isAdmin;
-};
-
-const getServer = (authorId) => {
-  let member = getMember(authorId);
-  let server = db
-    .get("servers")
-    .find({ members: [member] })
-    .value();
-
-  return server;
 };
 
 const setActive = (active, authorId) => {
@@ -255,9 +274,7 @@ const setActive = (active, authorId) => {
 
 const fire = (authorId) => {
   let server = getServer(authorId);
-
   if (server !== undefined) {
-    console.log(server.id);
     sendMessage(server.id);
   }
 };
@@ -282,8 +299,8 @@ client.on("message", (message) => {
       message.channel.send(
         "Additional commands for administrators (such as you):\n" +
           " - `fire`: Show this menu\n" +
-          " - `activate`: Activate \n" +
-          " - `deactivate`: Avoid sending you messages\n"
+          " - `activate`: Activate\n" +
+          " - `deactivate`: Deactivate\n"
       );
     }
   }
@@ -318,23 +335,13 @@ client.on("message", (message) => {
   }
 
   if (message.content == "stop") {
-    let code = managePermit(0, message.author.id);
-
-    if (code === "success") {
-      message.channel.send(defaultNoMessage);
-    } else {
-      message.channel.send(defaultErrorMessage);
-    }
+    managePermit(false, message.author.id);
+    message.channel.send(defaultNoMessage.replace(/['"]+/g, ""));
   }
 
   if (message.content == "fwiend?") {
-    let code = managePermit(1, message.author.id);
-
-    if (code === "success") {
-      message.channel.send(defaultYesMessage);
-    } else {
-      message.channel.send(defaultErrorMessage);
-    }
+    managePermit(true, message.author.id);
+    message.channel.send(defaultYesMessage.replace(/['"]+/g, ""));
   }
 });
 

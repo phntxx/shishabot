@@ -1,12 +1,13 @@
-FROM node:alpine
+FROM node:current-alpine
 
-WORKDIR /app
+WORKDIR /usr/src/app
 
-COPY yarn.lock .
-COPY package.json .
+COPY yarn.lock ./
+COPY package.json ./
 
-RUN [ "npm", "install" ]
+RUN [ "yarn", "install" ]
 
-COPY . /app
+COPY src .
+COPY data .
 
-CMD [ "npm", "start" ]
+CMD [ "yarn", "start" ]

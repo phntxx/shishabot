@@ -5,7 +5,7 @@
   "repository": "git@github.com:phntxx/shishabot.git",
   "license": "MIT",
   "scripts": {
-    "start": "node index.js"
+    "start": "node ./index.js"
   },
   "dependencies": {
     "discord.js": "^12.4.1",
