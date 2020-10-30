@@ -62,7 +62,6 @@ const getAllUsers = () => {
  * Initializes the database by writing all users that the bot can see across all servers to the DB
  */
 const initializeDatabase = () => {
-  console.log("INITIALIZE");
   let serverDatabase = db.get("servers");
   let list = getAllUsers();
 
@@ -110,7 +109,6 @@ const initializeDatabase = () => {
  * @param {string} id the ID of the server whose memberlist shall be updated
  */
 const refreshDatabase = (id) => {
-  console.log("REFRESHING");
   let serverDatabase = db.get("servers").find({ id: id });
   let serverMembers = client.guilds.cache.get(id).members.cache;
   let foundServer = serverDatabase.value();
@@ -118,30 +116,33 @@ const refreshDatabase = (id) => {
   if (foundServer === undefined) {
     initializeDatabase();
   } else {
+    let databaseMembers = foundServer.members;
+
     serverMembers.forEach((member) => {
-      let foundMember = serverDatabase.find({ id: member.id }).value();
+      let foundMember = databaseMembers.filter((m) => {
+        return m.id === member.id;
+      });
 
-      if (foundMember === undefined) {
+      let isAdmin =
+        member.roles.cache.find((role) => role.name === "Admin") !== undefined;
+
+      if (foundMember.length == 0) {
         if (!member.user.bot) {
-          let isAdmin =
-            member.roles.cache.find((role) => role.name === "Admin") !==
-            undefined;
-
-          let memberList = serverDatabase.value().members;
-          memberList.push({
+          databaseMembers.push({
             id: member.id,
             username: member.user.username + "#" + member.user.discriminator,
             admin: isAdmin,
             permit: true,
           });
 
-          serverDatabase.assign({ members: memberList }).write();
+          serverDatabase.assign({ members: databaseMembers }).write();
         }
       } else {
-        serverDatabase
-          .find({ id: member.id })
-          .assign({ admin: adminRole !== undefined })
-          .write();
+        databaseMembers.forEach((member) => {
+          member.admin = isAdmin;
+        });
+
+        serverDatabase.assign({ members: databaseMembers }).write();
       }
     });
   }
@@ -203,7 +204,6 @@ const managePermit = (mode, memberId) => {
  * @param {string} id the ID of the server affected
  */
 const sendMessage = (id) => {
-  console.log("SENDMESSAGE");
   let server = db.get("servers").find({ id: id }).value();
 
   if (!server.active) {
@@ -220,8 +220,6 @@ const sendMessage = (id) => {
         if (randomMember.permit) invalid = false;
       }
     }
-
-    console.log(randomMember.username);
 
     if (client.users.cache.get(randomMember.id) !== undefined) {
       client.users.cache
