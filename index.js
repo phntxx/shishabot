@@ -1,80 +1,180 @@
 const discord = require("discord.js");
-
 const low = require("lowdb");
 const fs = require("lowdb/adapters/FileSync");
 
+// Initialize the database
 const adapter = new fs("members.json");
 const db = low(adapter);
+db.defaults({ servers: [] }).write();
 
-db.defaults({ members: [] }).write();
+/**
+ * Environment variables that manage the connection to Discord.
+ * @param authToken {string} The authentication token of the Discord bot.
+ */
+const authToken = process.env.BOT_AUTHTOKEN;
 
-const authToken = "";
-const serverID = "";
-const adminRoleID = "";
+/**
+ * Environment variables that manage the messages the bot sends
+ * @param defaultMessage {string} The default message that is sent randomly.
+ * @param defaultYesMessage {string} The default message when someone sends "yes" to the bot
+ * @param defaultNoMessage {string} The default message when someone sends "stop" to the bot
+ * @param defaultErrorMessage {string} The default error message.
+ */
+const defaultMessage = process.env.BOT_DEFAULTMESSAGE;
+const defaultYesMessage = process.env.BOT_DEFAULTYESMESSAGE;
+const defaultNoMessage = process.env.BOT_DEFAULTNOMESSAGE;
+const defaultErrorMessage = process.env.BOT_ERRORMESSAGE;
 
-const defaultMessage =
-  "Hast du Lust Shisha zu rauchen? Do you want to smoke hookah with me?";
-const defaultNoMessage = "Plötzlich elit geworden?";
-const defaultYesMessage = "fwiend.";
-const defaultNoErrorMessage =
-  "uff, irgendwas is schief gelaufen. uhm, sth went wrong";
-const defaultYesErrorMessage = "we awe awweady fwiends ow something went wwong";
+/**
+ * Environment variables that manage timing-based options.
+ * @param authToken {string}
+ */
+const interval = process.env.BOT_INTERVAL;
+const maxTime = process.env.BOT_MAXTIME;
 
 // Code to connect the bot to Discord
 const client = new discord.Client();
 client.login(authToken);
 
-var active = false;
+/**
+ * Returns a list of all servers that the bot is connected to, among with the members that the bot can find on those servers
+ */
+const getAllUsers = () => {
+  let servers = [];
 
-// Update the database.
-const refreshMembers = () => {
-  let memberDataBase = db.get("members");
-  let members = getAllUsers();
+  client.guilds.cache.forEach((server) => {
+    let members = [];
+    server.members.cache.forEach((member) => members.push(member));
 
-  members.forEach((member) => {
-    let foundMember = memberDataBase.find({ id: member.id }).value();
-    let adminRole = member.roles.cache.find((role) => role.id === adminRoleID);
+    servers.push({
+      id: server.id,
+      name: server.name,
+      active: true,
+      members: members,
+    });
+  });
 
-    if (foundMember === undefined) {
+  return servers;
+};
+
+/**
+ * Initializes the database by writing all users that the bot can see across all servers to the DB
+ */
+const initializeDatabase = () => {
+  let serverDatabase = db.get("servers");
+  let list = getAllUsers();
+  console.log(list);
+
+  list.forEach((server) => {
+    let foundServer = serverDatabase.find({ id: server.id }).value();
+
+    let memberList = [];
+    server.members.forEach((member) => {
+      let isAdmin =
+        member.roles.cache.find((role) => role.name === "Admin") !== undefined;
+
       if (!member.user.bot) {
-        memberDataBase
-          .push({
-            id: member.id,
-            username: member.username,
-            admin: adminRole !== undefined,
-            permit: true,
-          })
-          .write();
+        memberList.push({
+          id: member.id,
+          username: member.user.username + "#" + member.user.discriminator,
+          admin: isAdmin,
+          permit: true,
+        });
       }
+    });
+
+    if (foundServer === undefined) {
+      serverDatabase
+        .push({
+          id: server.id,
+          name: server.name,
+          members: memberList,
+        })
+        .write();
     } else {
-      memberDataBase
-        .find({ id: member.id })
-        .assign({ admin: adminRole !== undefined })
+      let members = foundServer.members;
+      memberList = memberList.concat(members);
+
+      serverDatabase
+        .find({ id: server.id })
+        .assign({ members: memberList })
         .write();
     }
   });
 };
 
-const getAllUsers = () => {
-  const list = client.guilds.cache.get(serverID);
+/**
+ * Refreshes the list of members for one particular server. Is executed every time a message is received.
+ * @param {string} id the ID of the server whose memberlist shall be updated
+ */
+const refreshDatabase = (id) => {
+  let serverDatabase = db.get("servers").find({ id: id });
+  let serverMembers = client.guilds.cache.get(id).members.cache;
+  let foundServer = serverDatabase.value();
 
-  let members = [];
-  list.members.cache.forEach((member) => members.push(member));
+  if (foundServer === undefined) {
+    initializeDatabase();
+  } else {
+    serverMembers.forEach((member) => {
+      let foundMember = serverDatabase.find({ id: member.id }).value();
 
-  return members;
+      if (foundMember === undefined) {
+        if (!member.user.bot) {
+          let isAdmin =
+            member.roles.cache.find((role) => role.name === "Admin") !==
+            undefined;
+
+          let memberList = serverDatabase.value().members;
+          memberList.push({
+            id: member.id,
+            username: member.user.username + "#" + member.user.discriminator,
+            admin: isAdmin,
+            permit: true,
+          });
+
+          serverDatabase.assign({ members: memberList }).write();
+        }
+      } else {
+        serverDatabase
+          .find({ id: member.id })
+          .assign({ admin: adminRole !== undefined })
+          .write();
+      }
+    });
+  }
 };
 
-const getMember = (id) => {
-  return db.get("members").find({ id: id }).value();
+/**
+ * Returns a specific user's information from the database
+ * @param {string} memberId the ID of the member that shall be found
+ */
+const getMember = (memberId) => {
+  let servers = db.get("servers").value();
+  var member;
+
+  servers.forEach((server) => {
+    let members = server.members.filter((member) => {
+      return member.id === memberId;
+    });
+
+    if (members.length !== 0) member = members[0];
+  });
+
+  return member;
 };
 
-const managePermit = (mode, id) => {
+/**
+ * Edits the database to allow or disallow the bot to send random messages to specific users
+ * @param {number} mode the editMode (0 = remove, 1 = add)
+ * @param {string} serverId the Id of the server the member can be found on
+ * @param {string} memberId the Id of the member whose mode shall be changed
+ */
+const managePermit = (mode, serverId, memberId) => {
   let member = db.get("members").find({ id: id });
   let memberData = member.value();
 
-  // mode 1 -> add
-  // mode 0 -> remove
-  if (memberData !== undefined) {
+  // mode 1 -> add, mode 0 -> remove
+  if (memberData !== mode.add) {
     memberData.permit = mode === 1;
     member.assign(memberData).write();
     return "success";
@@ -83,86 +183,147 @@ const managePermit = (mode, id) => {
   }
 };
 
-const sendMessage = () => {
-  let members = db.get("members").value();
+/**
+ * Sends a message to a random user on a given server
+ * @param {string} id the ID of the server affected
+ */
+const sendMessage = (id) => {
+  let server = db.get("servers").find({ id: id }).value();
 
-  var invalid = true;
-  var randomMember;
-  while (invalid) {
-    randomMember = members[Math.floor(Math.random() * members.length)];
+  if (!server.active) {
+    return;
+  } else {
+    let members = server.members;
 
-    if (randomMember.permit) {
-      invalid = false;
+    var invalid = true;
+    var randomMember;
+    while (invalid) {
+      randomMember = members[Math.floor(Math.random() * members.length)];
+      if (randomMember.permit) invalid = false;
+    }
+
+    if (client.users.cache.get(randomMember.id) !== undefined) {
+      client.users.cache.get(randomMember.id).send(defaultMessage);
+    } else {
+      console.log("Skipped because of invalid user error.");
+    }
+  }
+};
+
+/**
+ * Function that sends a message to a random user on every server at a random interval.
+ */
+const sendAutomatic = () => {
+  let waitTime = 1000 * Math.floor(Math.random() * maxTime);
+  setTimeout(() => {
+    db.get("servers")
+      .value()
+      .forEach((server) => sendMessage(server.id));
+  }, waitTime);
+};
+
+/**
+ * Checks if a user is an administrator based on the message they sent in.
+ * @param {*} message The message a user sent
+ */
+const authenticate = (message) => {
+  let member = getMember(message.author.id);
+  if (member.admin) isAdmin = true;
+  return isAdmin;
+};
+
+const getServer = (authorId) => {
+  let member = getMember(authorId);
+  let server = db
+    .get("servers")
+    .find({ members: [member] })
+    .value();
+
+  return server;
+};
+
+const setActive = (active, authorId) => {
+  let server = getServer(authorId);
+
+  if (server !== undefined) {
+    db.get("servers")
+      .find({ id: server.id })
+      .assign({ active: active })
+      .write();
+  }
+};
+
+const fire = (authorId) => {
+  let server = getServer(authorId);
+
+  if (server !== undefined) {
+    console.log(server.id);
+    sendMessage(server.id);
+  }
+};
+
+/**
+ * Function that is triggered every time the bot receives a message.
+ */
+client.on("message", (message) => {
+  if (message.guild !== null) refreshDatabase(message.guild.id);
+
+  if (message.content === "!help" || message.content === "help") {
+    message.channel.send(
+      "Hi, I'm ShishaBot. I randomly ask people if they want to smoke Hookah (ger. Shisha) with me. \n" +
+        "I can do a couple of things, such as:\n" +
+        " - `help`: Show this menu\n" +
+        " - `amadmin`: Tell you if you are a server administrator\n" +
+        " - `stop`: Avoid sending you messages\n" +
+        " - `fwiend?`: Get me to send you messages"
+    );
+
+    if (authenticate(message)) {
+      message.channel.send(
+        "Additional commands for administrators (such as you):\n" +
+          " - `fire`: Show this menu\n" +
+          " - `activate`: Activate \n" +
+          " - `deactivate`: Avoid sending you messages\n"
+      );
     }
   }
 
-  if (client.users.cache.get(randomMember.id) !== undefined) {
-    client.users.cache.get(randomMember.id).send(defaultMessage);
-  } else {
-    console.error("Skipped because of invalid user error.");
-  }
-};
-
-const sendAutomatic = () => {
-  console.log(
-    active ? "Automatic sending active" : "Automatic sending inactive."
-  );
-
-  if (active) {
-    let time = Math.floor(Math.random() * 60 * 60 * 24) + 10;
-    console.log("Waiting " + time + "s");
-    setTimeout(sendMessage, 1000 * time);
-  }
-};
-
-// Function that handles I/O between users and the bot.
-client.on("message", (message) => {
-  refreshMembers();
-
-  if (message.content == "ping") {
-    message.channel.send("pong");
-  }
-
   if (message.content === "amadmin") {
-    let member = getMember(message.author.id);
-    message.channel.send(member.admin ? "Yes" : "No");
+    message.channel.send(authenticate(message).toString());
   }
 
   if (message.content === "activate") {
-    if (getMember(message.author.id).admin) {
-      active = true;
-      sendAutomatic();
-      message.channel.send("Activating.");
+    if (authenticate(message)) {
+      setActive(true, message.author.id);
     } else {
       message.channel.send("Error: Insufficient permissions.");
     }
   }
 
   if (message.content === "deactivate") {
-    if (getMember(message.author.id).admin) {
-      active = false;
-      message.channel.send("Deactivating.");
+    if (authenticate(message)) {
+      setActive(false, message.author.id);
     } else {
       message.channel.send("Error: Insufficient permissions.");
     }
   }
 
   if (message.content === "fire") {
-    if (getMember(message.author.id).admin) {
+    if (authenticate(message)) {
       message.channel.send("Firing.");
-      sendMessage();
+      fire(message.author.id);
     } else {
       message.channel.send("Error: Insufficient permissions.");
     }
   }
 
   if (message.content == "stop") {
-    let code = managerPermit(0, message.author.id);
+    let code = managePermit(0, message.author.id);
 
     if (code === "success") {
       message.channel.send(defaultNoMessage);
     } else {
-      message.channel.send(defaultNoErrorMessage);
+      message.channel.send(defaultErrorMessage);
     }
   }
 
@@ -172,19 +333,21 @@ client.on("message", (message) => {
     if (code === "success") {
       message.channel.send(defaultYesMessage);
     } else {
-      message.channel.send(defaultYesErrorMessage);
+      message.channel.send(defaultErrorMessage);
     }
   }
 });
 
-// Code that runs once the bot is ready
+/**
+ * Function that is triggered on start of the bot.
+ */
 client.once("ready", () => {
   console.log("Ready!");
   client.user.setStatus("online");
-  client.user.setActivity("Shisha / Hookah", { type: "PLAYING" });
+  client.user.setActivity("Shisha / Hookah", { type: "COMPETING" });
 
-  refreshMembers();
+  initializeDatabase();
 
   sendAutomatic();
-  setInterval(sendAutomatic, 1000 * 60 * 60);
+  setInterval(sendAutomatic, 1000 * interval);
 });

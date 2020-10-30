@@ -1,3 +1,16 @@
 {
-  "members": []
+  "servers": [
+    {
+      "id": "771467514286047233",
+      "name": "phntxx's server",
+      "members": [
+        {
+          "id": "367715368929591327",
+          "username": "phntxx#0398",
+          "admin": true,
+          "permit": true
+        }
+      ]
+    }
+  ]
 }
