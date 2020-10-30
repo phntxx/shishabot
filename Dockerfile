@@ -5,11 +5,8 @@ WORKDIR /app
 COPY yarn.lock .
 COPY package.json .
 
-RUN [ "yarn", "install" ]
+RUN [ "npm", "install" ]
 
-COPY index.js /app/index.js
-COPY members.json /app/members.json
+COPY . /app
 
-CMD [ "yarn", "start" ]
-
-FROM node:current-alpine
+CMD [ "npm", "start" ]
