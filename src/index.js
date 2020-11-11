@@ -19,7 +19,6 @@ console.log(authToken);
  * @param defaultMessage {string} The default message that is sent randomly.
  * @param yesMessage {string} The default message when someone sends "yes" to the bot
  * @param noMessage {string} The default message when someone sends "stop" to the bot
-
  */
 const defaultMessage = process.env.BOT_DEFAULTMESSAGE;
 const yesMessage = process.env.BOT_YESMESSAGE;
@@ -124,7 +123,7 @@ const refreshDatabase = id => {
         return m.id === member.id;
       });
 
-      member.roles.forEach(role => {
+      member.roles.cache.forEach(role => {
         console.log(role);
       });
 
