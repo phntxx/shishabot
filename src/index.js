@@ -105,7 +105,8 @@ const initializeDatabase = () => {
 };
 
 /**
- * Refreshes the list of members for one particular server. Is executed every time a message is received.
+ * Refreshes the list of members for one particular server.
+ * Is executed every time a message is received.
  * @param {string} id the ID of the server whose memberlist shall be updated
  */
 const refreshDatabase = id => {
@@ -124,7 +125,7 @@ const refreshDatabase = id => {
       });
 
       member.roles.cache.forEach(role => {
-        console.log(role);
+        console.log(role.name);
       });
 
       let isAdmin =
