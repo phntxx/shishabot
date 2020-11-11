@@ -70,8 +70,10 @@ const initializeDatabase = () => {
 
     let memberList = [];
     server.members.forEach(member => {
-      let isAdmin =
-        member.roles.cache.find(role => role.name === "Admin") !== undefined;
+      let isAdmin = false;
+      member.roles.cache.forEach(role => {
+        if (role.name === "Admin") isAdmin = true;
+      });
 
       if (!member.user.bot) {
         memberList.push({
@@ -124,14 +126,16 @@ const refreshDatabase = id => {
         return m.id === member.id;
       });
 
+      console.log(member.nickname);
+
+      let isAdmin = false;
       member.roles.cache.forEach(role => {
-        console.log(role.name);
+        if (role.name === "Admin") isAdmin = true;
       });
 
-      let isAdmin =
-        member.roles.cache.find(role => role.name === "Admin") !== undefined;
+      console.log(foundMember);
 
-      if (foundMember.length == 0) {
+      if (foundMember.length === 0) {
         if (!member.user.bot) {
           databaseMembers.push({
             id: member.id,
@@ -167,6 +171,8 @@ const getMember = memberId => {
     });
 
     if (members.length !== 0) member = members[0];
+
+    console.log(members);
   });
 
   return member;
@@ -257,6 +263,8 @@ const sendAutomatic = () => {
  */
 const authenticate = message => {
   let member = getMember(message.author.id);
+
+  console.log(member);
 
   var isAdmin = false;
   if (member !== undefined) {
