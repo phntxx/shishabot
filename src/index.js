@@ -12,6 +12,7 @@ db.defaults({ servers: [] }).write();
  * @param authToken {string} The authentication token of the Discord bot.
  */
 const authToken = process.env.BOT_AUTHTOKEN;
+console.log(authToken);
 
 /**
  * Environment variables that manage the messages the bot sends
@@ -43,15 +44,15 @@ client.login(authToken);
 const getAllUsers = () => {
   let servers = [];
 
-  client.guilds.cache.forEach((server) => {
+  client.guilds.cache.forEach(server => {
     let members = [];
-    server.members.cache.forEach((member) => members.push(member));
+    server.members.cache.forEach(member => members.push(member));
 
     servers.push({
       id: server.id,
       name: server.name,
       active: true,
-      members: members,
+      members: members
     });
   });
 
@@ -65,20 +66,20 @@ const initializeDatabase = () => {
   let serverDatabase = db.get("servers");
   let list = getAllUsers();
 
-  list.forEach((server) => {
+  list.forEach(server => {
     let foundServer = serverDatabase.find({ id: server.id }).value();
 
     let memberList = [];
-    server.members.forEach((member) => {
+    server.members.forEach(member => {
       let isAdmin =
-        member.roles.cache.find((role) => role.name === "Admin") !== undefined;
+        member.roles.cache.find(role => role.name === "Admin") !== undefined;
 
       if (!member.user.bot) {
         memberList.push({
           id: member.id,
           username: member.user.username + "#" + member.user.discriminator,
           admin: isAdmin,
-          permit: true,
+          permit: true
         });
       }
     });
@@ -89,7 +90,7 @@ const initializeDatabase = () => {
           id: server.id,
           name: server.name,
           active: true,
-          members: memberList,
+          members: memberList
         })
         .write();
     } else {
@@ -108,7 +109,7 @@ const initializeDatabase = () => {
  * Refreshes the list of members for one particular server. Is executed every time a message is received.
  * @param {string} id the ID of the server whose memberlist shall be updated
  */
-const refreshDatabase = (id) => {
+const refreshDatabase = id => {
   let serverDatabase = db.get("servers").find({ id: id });
   let serverMembers = client.guilds.cache.get(id).members.cache;
   let foundServer = serverDatabase.value();
@@ -118,13 +119,17 @@ const refreshDatabase = (id) => {
   } else {
     let databaseMembers = foundServer.members;
 
-    serverMembers.forEach((member) => {
-      let foundMember = databaseMembers.filter((m) => {
+    serverMembers.forEach(member => {
+      let foundMember = databaseMembers.filter(m => {
         return m.id === member.id;
       });
 
+      member.roles.forEach(role => {
+        console.log(role);
+      });
+
       let isAdmin =
-        member.roles.cache.find((role) => role.name === "Admin") !== undefined;
+        member.roles.cache.find(role => role.name === "Admin") !== undefined;
 
       if (foundMember.length == 0) {
         if (!member.user.bot) {
@@ -132,13 +137,13 @@ const refreshDatabase = (id) => {
             id: member.id,
             username: member.user.username + "#" + member.user.discriminator,
             admin: isAdmin,
-            permit: true,
+            permit: true
           });
 
           serverDatabase.assign({ members: databaseMembers }).write();
         }
       } else {
-        databaseMembers.forEach((member) => {
+        databaseMembers.forEach(member => {
           member.admin = isAdmin;
         });
 
@@ -152,12 +157,12 @@ const refreshDatabase = (id) => {
  * Returns a specific user's information from the database
  * @param {string} memberId the ID of the member that shall be found
  */
-const getMember = (memberId) => {
+const getMember = memberId => {
   let servers = db.get("servers").value();
   var member;
 
-  servers.forEach((server) => {
-    let members = server.members.filter((member) => {
+  servers.forEach(server => {
+    let members = server.members.filter(member => {
       return member.id === memberId;
     });
 
@@ -167,7 +172,7 @@ const getMember = (memberId) => {
   return member;
 };
 
-const getServer = (authorId) => {
+const getServer = authorId => {
   let member = getMember(authorId);
   let server = db
     .get("servers")
@@ -203,8 +208,11 @@ const managePermit = (mode, memberId) => {
  * Sends a message to a random user on a given server
  * @param {string} id the ID of the server affected
  */
-const sendMessage = (id) => {
-  let server = db.get("servers").find({ id: id }).value();
+const sendMessage = id => {
+  let server = db
+    .get("servers")
+    .find({ id: id })
+    .value();
 
   if (!server.active) {
     return;
@@ -239,7 +247,7 @@ const sendAutomatic = () => {
   setTimeout(() => {
     db.get("servers")
       .value()
-      .forEach((server) => sendMessage(server.id));
+      .forEach(server => sendMessage(server.id));
   }, waitTime);
 };
 
@@ -247,7 +255,7 @@ const sendAutomatic = () => {
  * Checks if a user is an administrator based on the message they sent in.
  * @param {*} message The message a user sent
  */
-const authenticate = (message) => {
+const authenticate = message => {
   let member = getMember(message.author.id);
 
   var isAdmin = false;
@@ -271,7 +279,7 @@ const setActive = (active, authorId) => {
   }
 };
 
-const fire = (authorId) => {
+const fire = authorId => {
   let server = getServer(authorId);
   if (server !== undefined) {
     sendMessage(server.id);
@@ -281,7 +289,7 @@ const fire = (authorId) => {
 /**
  * Function that is triggered every time the bot receives a message.
  */
-client.on("message", (message) => {
+client.on("message", message => {
   if (message.guild !== null) refreshDatabase(message.guild.id);
 
   switch (message.content.toLowerCase()) {
