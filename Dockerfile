@@ -1,13 +1,12 @@
 FROM node:current-alpine
 
-WORKDIR /usr/src/app
+WORKDIR /usr/src/app/bot
 
-COPY yarn.lock ./
-COPY package.json ./
+COPY src/yarn.lock ./
+COPY src/package.json ./
 
 RUN [ "yarn", "install" ]
 
-COPY src .
-COPY data .
+COPY src/index.js ./
 
 CMD [ "yarn", "start" ]

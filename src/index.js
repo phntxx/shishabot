@@ -1,380 +1,355 @@
 const discord = require("discord.js");
-const low = require("lowdb");
-const fs = require("lowdb/adapters/FileSync");
+const postgres = require("pg");
+const fs = require("fs");
 
-// Initialize the database
-const adapter = new fs("./data/members.json");
-const db = low(adapter);
-db.defaults({ servers: [] }).write();
+const settingsData = fs.readFileSync("../conf/settings.json");
+const settings = JSON.parse(settingsData);
 
 /**
- * Environment variables that manage the connection to Discord.
- * @param authToken {string} The authentication token of the Discord bot.
+ * Variable definitions to connect the bot to Discord and the PostgreSQL database.
  */
-const authToken = process.env.BOT_AUTHTOKEN;
-console.log(authToken);
+const discordClient = new discord.Client();
+discordClient.login(settings.discord.authToken);
+
+postgres.defaults.ssl = false;
+const databaseClient = new postgres.Client(settings.postgres);
+databaseClient.connect();
 
 /**
- * Environment variables that manage the messages the bot sends
- * @param defaultMessage {string} The default message that is sent randomly.
- * @param yesMessage {string} The default message when someone sends "yes" to the bot
- * @param noMessage {string} The default message when someone sends "stop" to the bot
+ * Wrapper-function for database queries
+ * @param {*} mode the type of query that shall be performed
+ * @param {*} value the values that the query shall be filtered with
+ * @param {*} callback the function that is performed after the data has been retrieved
  */
-const defaultMessage = process.env.BOT_DEFAULTMESSAGE;
-const yesMessage = process.env.BOT_YESMESSAGE;
-const noMessage = process.env.BOT_NOMESSAGE;
-const activateMessage = process.env.BOT_ACTIVATEMESSAGE;
-const deactivateMessage = process.env.BOT_DEACTIVATEMESSAGE;
+const check = (mode, value, callback) => {
+  let query = { text: "", values: [] };
 
-/**
- * Environment variables that manage timing-based options.
- * @param authToken {string}
- */
-const interval = process.env.BOT_INTERVAL;
-const maxTime = process.env.BOT_MAXTIME;
+  switch (mode) {
+    case "member":
+      query.text = "SELECT COUNT(*) FROM member WHERE userid=$1";
+      query.values = [value];
+      break;
+    case "server":
+      query.text = "SELECT COUNT(*) FROM server WHERE serverid=$1";
+      query.values = [value];
+      break;
+    case "enabledserver":
+      query.text = "SELECT serverid FROM server WHERE enabled=true";
+      break;
+    case "memberofserver":
+      query.text =
+        "SELECT COUNT(*) FROM memberofserver WHERE serverid=$1 AND memberid=$2";
+      query.values = value;
+      break;
+    case "adminofserver":
+      query.text =
+        "SELECT COUNT(*) FROM administratorofserver WHERE serverid=$1 AND memberid=$2";
+      query.values = value;
+      break;
+    case "admin":
+      query.text =
+        "SELECT * FROM server, administratorofserver WHERE server.serverid=administratorofserver.serverid AND memberid=$1";
+      query.values = [value];
+  }
 
-// Code to connect the bot to Discord
-const client = new discord.Client();
-client.login(authToken);
-
-/**
- * Returns a list of all servers that the bot is connected to, among with the members that the bot can find on those servers
- */
-const getAllUsers = () => {
-  let servers = [];
-
-  client.guilds.cache.forEach(server => {
-    let members = [];
-    server.members.cache.forEach(member => members.push(member));
-
-    servers.push({
-      id: server.id,
-      name: server.name,
-      active: true,
-      members: members
-    });
-  });
-
-  return servers;
+  if (query.text !== "" && query.values.length != 0) {
+    databaseClient.query(query).then((res) => callback(res.rows));
+  }
 };
 
 /**
- * Initializes the database by writing all users that the bot can see across all servers to the DB
+ * Updates the database every time a new message is received.
+ * @param {Message} m the message that was received by the bot
  */
-const initializeDatabase = () => {
-  let serverDatabase = db.get("servers");
-  let list = getAllUsers();
+const updateDatabase = (m) => {
+  if (!m.author.bot && !m.author.system) {
+    check("member", m.author.id, (rows) => {
+      if (rows[0].count == 0) add("user", m.author);
+    });
 
-  list.forEach(server => {
-    let foundServer = serverDatabase.find({ id: server.id }).value();
-
-    let memberList = [];
-    server.members.forEach(member => {
-      let isAdmin = false;
-      member.roles.cache.forEach(role => {
-        if (role.name === "Admin") isAdmin = true;
+    if (m.channel.type === "text") {
+      check("server", m.channel.guild.id, (rows) => {
+        if (rows[0].count == 0) add("server", m.channel.guild);
       });
 
-      if (!member.user.bot) {
-        memberList.push({
-          id: member.id,
-          username: member.user.username + "#" + member.user.discriminator,
-          admin: isAdmin,
-          permit: true
+      check("memberofserver", [m.channel.guild.id, m.author.id], (rows) => {
+        if (rows[0].count == 0) add("member", m);
+      });
+
+      check("adminofserver", [m.channel.guild.id, m.author.id], (rows) => {
+        rules = [m.member.hasPermission("ADMINISTRATOR"), rows[0].count != 0];
+
+        if (rules[0] && !rules[1]) add("administrator", m);
+        if (!rules[0] && rules[1]) remove("administrator", m);
+      });
+    }
+  }
+};
+
+/**
+ * Function that adds something to the database
+ * @param {string} mode the type of the item that shall be added
+ * @param {any} data the data the item shall be populated with
+ */
+const add = (mode, data) => {
+  let query = { text: "", values: [] };
+  switch (mode) {
+    case "user":
+      query.text = "INSERT INTO member(userid, username) VALUES ($1, $2)";
+      query.values = [data.id, `${data.username}#${data.discriminator}`];
+      break;
+    case "server":
+      query.text = "INSERT INTO server(serverid, name) VALUES ($1, $2)";
+      query.values = [data.id, data.name];
+      break;
+    case "member":
+      query.text =
+        "INSERT INTO memberofserver(serverid, memberid) VALUES ($1, $2)";
+      query.values = [data.channel.guild.id, data.author.id];
+      break;
+    case "administrator":
+      query.text =
+        "INSERT INTO administratorofserver(serverid, memberid) VALUES ($1, $2)";
+      query.values = [data.channel.guild.id, data.author.id];
+      break;
+    default:
+      break;
+  }
+
+  if (query.text !== "" && query.values.length != 0) {
+    databaseClient.query(query);
+  }
+};
+
+const remove = (mode, data) => {
+  if (mode === "administrator") {
+    databaseClient.query({
+      text:
+        "DELETE FROM administratorofserver WHERE serverid=$1 AND memberid=$2",
+      values: [data.channel.guild.id, data.author.id],
+    });
+  }
+};
+
+/**
+ * Function that updates user and server permissions
+ * @param {*} mode The type of permission that shall be modified
+ * @param {*} data The ID of the respective user or server
+ */
+const updatePermissions = (mode, data) => {
+  let query = { text: "", values: [data] };
+  switch (mode) {
+    case "userenable":
+      query.text = "UPDATE member SET permission=true WHERE userid=$1";
+      break;
+    case "userdisable":
+      query.text = "UPDATE member SET permission=false WHERE userid=$1";
+      break;
+    case "serverenable":
+      query.text = "UPDATE server SET enable=true WHERE serverid=$1";
+      break;
+    case "serverdisable":
+      query.text = "UPDATE server SET enable=false WHERE serverid=$1";
+      break;
+    default:
+      break;
+  }
+
+  if (query.text !== "") databaseClient.query(query);
+};
+
+/**
+ * Function that fires the bot to send a message to a random enabled person on every enabled server
+ * @param {*} server (optional)
+ */
+const send = (server = 0) => {
+  if (server == 0) {
+    check("enabledserver", [], (rows) => {
+      rows.forEach((row) => send(row.serverid));
+    });
+  }
+
+  if (server !== 0) {
+    databaseClient
+      .query({
+        text:
+          "SELECT memberofserver.memberid FROM memberofserver, member WHERE member.userid=memberofserver.memberid AND memberofserver.serverid=$1 AND member.permission=true ORDER BY random() LIMIT 1",
+        values: [server],
+      })
+      .then((res) => {
+        res.rows.forEach((row) => {
+          discordClient.users.cache
+            .get(row.memberid)
+            .send(settings.messages.default.replace(/['"]+/g, ""));
         });
-      }
-    });
-
-    if (foundServer === undefined) {
-      serverDatabase
-        .push({
-          id: server.id,
-          name: server.name,
-          active: true,
-          members: memberList
-        })
-        .write();
-    } else {
-      let members = foundServer.members;
-      memberList = memberList.concat(members);
-
-      serverDatabase
-        .find({ id: server.id })
-        .assign({ members: memberList })
-        .write();
-    }
-  });
-};
-
-/**
- * Refreshes the list of members for one particular server.
- * Is executed every time a message is received.
- * @param {string} id the ID of the server whose memberlist shall be updated
- */
-const refreshDatabase = id => {
-  let serverDatabase = db.get("servers").find({ id: id });
-  let serverMembers = client.guilds.cache.get(id).members.cache;
-  let foundServer = serverDatabase.value();
-
-  if (foundServer === undefined) {
-    initializeDatabase();
-  } else {
-    let databaseMembers = foundServer.members;
-
-    serverMembers.forEach(member => {
-      let foundMember = databaseMembers.filter(m => {
-        return m.id === member.id;
       });
-
-      console.log(member.nickname);
-
-      let isAdmin = false;
-      member.roles.cache.forEach(role => {
-        if (role.name === "Admin") isAdmin = true;
-      });
-
-      console.log(foundMember);
-
-      if (foundMember.length === 0) {
-        if (!member.user.bot) {
-          databaseMembers.push({
-            id: member.id,
-            username: member.user.username + "#" + member.user.discriminator,
-            admin: isAdmin,
-            permit: true
-          });
-
-          serverDatabase.assign({ members: databaseMembers }).write();
-        }
-      } else {
-        databaseMembers.forEach(member => {
-          member.admin = isAdmin;
-        });
-
-        serverDatabase.assign({ members: databaseMembers }).write();
-      }
-    });
   }
 };
 
-/**
- * Returns a specific user's information from the database
- * @param {string} memberId the ID of the member that shall be found
- */
-const getMember = memberId => {
-  let servers = db.get("servers").value();
-  var member;
-
-  servers.forEach(server => {
-    let members = server.members.filter(member => {
-      return member.id === memberId;
-    });
-
-    if (members.length !== 0) member = members[0];
-
-    console.log(members);
-  });
-
-  return member;
+const sendMessage = () => {
+  let time = 1000 * Math.floor(Math.random() * settings.timing.wait);
+  setTimeout(send(0), time);
 };
 
-const getServer = authorId => {
-  let member = getMember(authorId);
-  let server = db
-    .get("servers")
-    .find({ members: [member] })
-    .value();
-
-  return server;
-};
-
-/**
- * Edits the database to allow or disallow the bot to send random messages to specific users
- * @param {number} mode the editMode (0 = remove, 1 = add)
- * @param {string} memberId the Id of the member whose mode shall be changed
- */
-const managePermit = (mode, memberId) => {
-  let serverData = getServer(memberId);
-
-  if (serverData !== undefined) {
-    serverData.members.forEach((member, i) => {
-      if (member.id == memberId) {
-        member.permit = mode;
-
-        db.get("server")
-          .find({ id: serverData.id })
-          .assign({ members: serverData.members })
-          .write();
-      }
-    });
-  }
-};
-
-/**
- * Sends a message to a random user on a given server
- * @param {string} id the ID of the server affected
- */
-const sendMessage = id => {
-  let server = db
-    .get("servers")
-    .find({ id: id })
-    .value();
-
-  if (!server.active) {
-    return;
+const botWasMentioned = (m) => {
+  if (m.channel.type === "text" && m.mentions.members.first() !== undefined) {
+    return m.mentions.members.first().id === settings.discord.clientId;
   } else {
-    let members = server.members;
-
-    var invalid = true;
-    var randomMember;
-    while (invalid) {
-      randomMember = members[Math.floor(Math.random() * members.length)];
-
-      if (randomMember !== undefined) {
-        if (randomMember.permit) invalid = false;
-      }
-    }
-
-    if (client.users.cache.get(randomMember.id) !== undefined) {
-      client.users.cache
-        .get(randomMember.id)
-        .send(defaultMessage.replace(/['"]+/g, ""));
-    } else {
-      console.log("Skipped because of invalid user error.");
-    }
+    return false;
   }
 };
 
 /**
- * Function that sends a message to a random user on every server at a random interval.
+ * The function that handles received messages.
+ * The database is updated with every message, but a response is only sent when the bot is mentioned or the message is received via DM.
  */
-const sendAutomatic = () => {
-  let waitTime = 1000 * Math.floor(Math.random() * maxTime);
-  setTimeout(() => {
-    db.get("servers")
-      .value()
-      .forEach(server => sendMessage(server.id));
-  }, waitTime);
-};
+discordClient.on("message", (message) => {
+  if (!message.author.bot && !message.author.system) {
+    updateDatabase(message);
 
-/**
- * Checks if a user is an administrator based on the message they sent in.
- * @param {*} message The message a user sent
- */
-const authenticate = message => {
-  let member = getMember(message.author.id);
+    let content = message.content.toLowerCase();
 
-  console.log(member);
-
-  var isAdmin = false;
-  if (member !== undefined) {
-    if (member.admin) {
-      isAdmin = true;
-    }
-  }
-
-  return isAdmin;
-};
-
-const setActive = (active, authorId) => {
-  let server = getServer(authorId);
-
-  if (server !== undefined) {
-    db.get("servers")
-      .find({ id: server.id })
-      .assign({ active: active })
-      .write();
-  }
-};
-
-const fire = authorId => {
-  let server = getServer(authorId);
-  if (server !== undefined) {
-    sendMessage(server.id);
-  }
-};
-
-/**
- * Function that is triggered every time the bot receives a message.
- */
-client.on("message", message => {
-  if (message.guild !== null) refreshDatabase(message.guild.id);
-
-  switch (message.content.toLowerCase()) {
-    case "help":
-      message.channel.send(
-        "Hi, I'm ShishaBot. I randomly ask people if they want to smoke Hookah (ger. Shisha) with me. \n" +
-          "I can do a couple of things, such as:\n" +
-          " - `help`: Show this menu\n" +
-          " - `amadmin`: Tell you if you are a server administrator\n" +
-          " - `stop`: Avoid sending you messages\n" +
-          " - `fwiend?`: Get me to send you messages"
-      );
-
-      if (authenticate(message)) {
-        message.channel.send(
-          "Additional commands for administrators (such as you):\n" +
-            " - `fire`: Show this menu\n" +
-            " - `activate`: Activate\n" +
-            " - `deactivate`: Deactivate\n"
+    if (botWasMentioned(message)) {
+      if (content.includes("!enable")) {
+        check(
+          "adminofserver",
+          [message.channel.guild.id, message.author.id],
+          (rows) => {
+            if (rows.length !== 0)
+              updatePermissions("serverenable", message.channel.guild.id);
+            message.channel.send(
+              `Shishabot is enabled on ${message.channel.guild.name}.`
+            );
+          }
         );
       }
-      break;
-    case "amadmin":
-      message.channel.send(authenticate(message).toString());
-      break;
-    case "activate":
-      if (authenticate(message)) {
-        setActive(true, message.author.id);
-      } else {
-        message.channel.send("Error: Insufficient permissions.");
+
+      if (content.includes("!disable")) {
+        check(
+          "adminofserver",
+          [message.channel.guild.id, message.author.id],
+          (rows) => {
+            if (rows.length !== 0)
+              updatePermissions("serverdisable", message.channel.guild.id);
+            message.channel.send(
+              `Shishabot is disabled on ${message.channel.guild.name}.`
+            );
+          }
+        );
       }
-      break;
-    case "deactivate":
-      if (authenticate(message)) {
-        setActive(false, message.author.id);
-      } else {
-        message.channel.send("Error: Insufficient permissions.");
+    }
+
+    if (botWasMentioned(message) || message.channel.type === "dm") {
+      if (content.includes("!help")) {
+        message.channel.send(
+          "Hi, I'm ShishaBot. I randomly ask people if they want to smoke Hookah (ger. Shisha) with me. \n" +
+            "I can do a couple of things, such as:\n" +
+            " - `!help`: Show this menu\n" +
+            " - `!amadministrator`: Tell you if you are a server administrator\n" +
+            " - `!stop`: Get me to stop sending you messages\n" +
+            " - `!start`: Get me to start sending you messages"
+        );
+
+        if (message.channel.type === "dm") {
+          check("admin", message.author.id, (rows) => {
+            if (rows.length !== 0) {
+              message.channel.send(
+                "For administrators, I can do a couple of other things too, such as:\n" +
+                  " - `!fire`: Send a message to a random user on every server that you are the admin of\n" +
+                  " - `!enable`: Enable me on every server that you are the admin of\n" +
+                  " - `!disable`: Disable me on every server that you are the admin of\n"
+              );
+            }
+          });
+        } else if (botWasMentioned(message)) {
+          check(
+            "adminofserver",
+            [message.channel.guild.id, message.author.id],
+            (rows) => {
+              if (rows.length !== 0) {
+                message.channel.send(
+                  "For administrators, I can do a couple of other things too, such as:\n" +
+                    " - `!fire`: Send a message to a random user of this server\n" +
+                    " - `!enable`: Enable me on this server\n" +
+                    " - `!disable`: Disable me on this server\n"
+                );
+              }
+            }
+          );
+        }
       }
-      break;
-    case "fire":
-      if (authenticate(message)) {
-        message.channel.send("Firing.");
-        fire(message.author.id);
-      } else {
-        message.channel.send("Error: Insufficient permissions.");
+
+      if (content.includes("!fire")) {
+        if (message.channel.type === "dm") {
+          check("admin", message.author.id, (rows) => {
+            rows.forEach((row) => send(row.serverid));
+          });
+        } else if (botWasMentioned(message)) {
+          check(
+            "adminofserver",
+            [message.channel.guild.id, message.author.id],
+            (rows) => {
+              if (rows.length !== 0) send(message.channel.guild.id);
+            }
+          );
+        }
       }
-      break;
-    case "yes":
-    case "ja":
-      message.channel.send(yesMessage.replace(/['"]+/g, ""));
-      break;
-    case "no":
-    case "nein":
-      message.channel.send(noMessage.replace(/['"]+/g, ""));
-      break;
-    case "stop":
-      managePermit(false, message.author.id);
-      message.channel.send(deactivateMessage.replace(/['"]+/g, ""));
-      break;
-    case "come back":
-    case "fwiend?":
-      managePermit(true, message.author.id);
-      message.channel.send(activateMessage.replace(/['"]+/g, ""));
-      break;
+
+      if (content.includes("!stop")) {
+        updatePermissions("userdisable", message.author.id);
+        message.channel.send(settings.messages.deactivate);
+      }
+
+      if (content.includes("!start")) {
+        updatePermissions("userenable", message.author.id);
+        message.channel.send(settings.messages.activate);
+      }
+
+      if (content.includes("!amadministrator")) {
+        if (message.channel.type === "dm") {
+          check("admin", message.author.id, (rows) => {
+            let servers = [];
+            rows.forEach((row) => servers.push(row.name));
+
+            if (servers.length !== 0) {
+              message.channel.send(`You are admin on: ${servers.join(", ")}`);
+            } else {
+              message.channel.send(
+                "You are no administrator on any server I know."
+              );
+            }
+          });
+        } else if (botWasMentioned(message)) {
+          check(
+            "adminofserver",
+            [message.channel.guild.id, message.author.id],
+            (rows) => {
+              message.channel.send(rows.length !== 0);
+            }
+          );
+        }
+      }
+    }
+
+    if (message.channel.type === "dm") {
+      if (content.includes("yes") || content.includes("ja")) {
+        message.channel.send(settings.messages.yes);
+      }
+
+      if (content.includes("no") || content.includes("nein")) {
+        message.channel.send(settings.messages.no);
+      }
+    }
   }
 });
 
 /**
- * Function that is triggered on start of the bot.
+ * The function that runs once the bot is connected with Discord, thereby up and running.
+ * Think of this like you would of a "main"-function.
  */
-client.once("ready", () => {
-  console.log("Ready!");
-  client.user.setStatus("online");
-  client.user.setActivity("Shisha / Hookah", { type: "COMPETING" });
-
-  initializeDatabase();
-
-  sendAutomatic();
-  setInterval(sendAutomatic, 1000 * interval);
+discordClient.once("ready", () => {
+  discordClient.user.setStatus("online");
+  discordClient.user.setActivity("Shisha / Hookah", { type: "COMPETING" });
 });
+
+setInterval(sendMessage, settings.timing.interval);

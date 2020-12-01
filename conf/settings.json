@@ -1,0 +1,24 @@
+{
+  "discord": {
+    "authToken": "",
+    "clientId": ""
+  },
+  "postgres": {
+    "host": "database",
+    "port": 5432,
+    "user": "shishabot",
+    "password": "shishabot",
+    "database": "shishabot"
+  },
+  "messages": {
+    "default": "",
+    "yes": "",
+    "no": "",
+    "deactivate": "",
+    "activate": ""
+  },
+  "timing": {
+    "interval": 604800,
+    "wait": 86400
+  }
+}

@@ -1,0 +1,30 @@
+version: "3"
+
+services:
+  shishabot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./conf:/usr/src/app/conf
+    depends_on:
+      - database
+
+  database:
+    image: postgres:alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=shishabot
+      - POSTGRES_PASSWORD=shishabot
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - ./database:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - 8080:8080
+    depends_on:
+      - database
