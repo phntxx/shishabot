@@ -15,6 +15,21 @@ postgres.defaults.ssl = false;
 const databaseClient = new postgres.Client(settings.postgres);
 databaseClient.connect();
 
+const createTables = () => {
+  databaseClient.query(
+    "CREATE TABLE IF NOT EXISTS Member (id SERIAL PRIMARY KEY, userid VARCHAR NOT NULL UNIQUE, username VARCHAR NOT NULL, permission BOOLEAN NOT NULL DEFAULT true)"
+  );
+  databaseClient.query(
+    "CREATE TABLE IF NOT EXISTS Server (id SERIAL PRIMARY KEY, serverid VARCHAR NOT NULL UNIQUE, name VARCHAR NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true)"
+  );
+  databaseClient.query(
+    "CREATE TABLE IF NOT EXISTS MemberOfServer (id SERIAL PRIMARY KEY, serverid VARCHAR references Server(serverid) ON DELETE CASCADE ON UPDATE CASCADE, memberid VARCHAR references Member(userid) ON DELETE CASCADE ON UPDATE CASCADE, unique (serverid, memberid))"
+  );
+  databaseClient.query(
+    "CREATE TABLE IF NOT EXISTS AdministratorOfServer (id SERIAL PRIMARY KEY, serverid VARCHAR references Server(serverid) ON DELETE CASCADE ON UPDATE CASCADE, memberid VARCHAR references Member(userid) ON DELETE CASCADE ON UPDATE CASCADE, unique (serverid, memberid))"
+  );
+};
+
 /**
  * Wrapper-function for database queries
  * @param {*} mode the type of query that shall be performed
@@ -188,7 +203,7 @@ const send = (server = 0) => {
 
 const sendMessage = () => {
   let time = 1000 * Math.floor(Math.random() * settings.timing.wait);
-  setTimeout(send(0), time);
+  setTimeout(send, time);
 };
 
 const botWasMentioned = (m) => {
@@ -347,6 +362,9 @@ discordClient.on("message", (message) => {
  * The function that runs once the bot is connected with Discord, thereby up and running.
  * Think of this like you would of a "main"-function.
  */
+
+createTables();
+
 discordClient.once("ready", () => {
   discordClient.user.setStatus("online");
   discordClient.user.setActivity("Shisha / Hookah", { type: "COMPETING" });
